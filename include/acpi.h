@@ -148,6 +148,8 @@ enum acpi_src_type {
 	ACPI_SRC_TYPE_MAX
 };
 
+EFI_STATUS get_acpi_rsdp(VOID **prsdp);
+
 /* Some ACPI table signatures, SSDT for instance, might appear several
  * times.  An extra table number can be appended to the supplied
  * SIGNATURE to specify which one is required.  For instance, with
