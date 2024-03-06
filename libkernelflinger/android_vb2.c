@@ -417,6 +417,8 @@ EFI_STATUS android_image_load_partition_avb_ab(
 #ifdef USE_ACPIO
                 "acpio",
 #endif
+#ifdef USE_ACRN
+#endif
                 NULL};
         bool allow_verification_error = device_is_unlocked();
 
