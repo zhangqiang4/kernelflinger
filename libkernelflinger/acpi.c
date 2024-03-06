@@ -183,6 +183,12 @@ out:
 	return ret;
 }
 
+EFI_STATUS get_acpi_rsdp(VOID **prsdp)
+{
+	EFI_GUID acpi2_guid = ACPI_20_TABLE_GUID;
+	return LibGetSystemConfigurationTable(&acpi2_guid, prsdp);
+}
+
 EFI_STATUS get_acpi_table(const CHAR8 *signature, VOID **table)
 {
 	struct XSDT_TABLE *xsdt;
