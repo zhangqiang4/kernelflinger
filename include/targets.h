@@ -50,7 +50,9 @@ enum boot_target {
 	MEMORY,
 	CHARGER,
 	POWER_OFF,
-	EXIT_SHELL
+	EXIT_SHELL,
+	ASOS,
+	MAX_BOOT_TARGET,
 };
 
 #define is_bootimg_target(target) \

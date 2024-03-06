@@ -79,6 +79,7 @@ BOOLEAN andr_tpm = true;
 #else
 BOOLEAN andr_tpm = false;
 #endif
+#include "acrn.h"
 
 /* Ensure this is embedded in the EFI binary somewhere */
 static const CHAR16 __attribute__((used)) magic[] = L"### kernelflinger ###";
@@ -1057,6 +1058,7 @@ static EFI_STATUS avb_load_verify_boot_image(
 	EFI_STATUS ret;
 
 	switch (boot_target) {
+	case ASOS:
 	case NORMAL_BOOT:
 	case CHARGER:
 		if (!slot_data) {
@@ -1118,6 +1120,7 @@ static EFI_STATUS avb_load_verify_vendor_boot_image(
 	AvbSlotVerifyData *slot_data;
 
 	switch (boot_target) {
+	case ASOS:
 	case NORMAL_BOOT:
 	case CHARGER:
 	case RECOVERY:
@@ -1134,6 +1137,50 @@ static EFI_STATUS avb_load_verify_vendor_boot_image(
 	return ret;
 }
 
+
+/* Use AVB load and verify multiboot2 images into RAM.
+ *
+ * boot_target  - Boot image to load. Values supported are ASOS so far.
+ * images	- loaded multiboot2 images for acrn and Prelaunched VMs.
+ *
+ * Return values:
+ * EFI_INVALID_PARAMETER - Unsupported boot target type, key is not well-formed,
+ *                         or loaded acrn image was missing or corrupt
+ * EFI_ACCESS_DENIED     - Validation failed against OEM or embedded certificate,
+ *                         acrn image still usable
+ */
+EFI_STATUS avb_load_verify_mb2_images(
+		IN enum boot_target boot_target,
+		IN struct mb2_images *images)
+{
+	UINT8 boot_state;
+	AvbSlotVerifyData *slot_data;	// TODO take care for production
+	struct mb2_image_header *hdr;
+	EFI_STATUS ret;
+	CHAR8 *image_names = MB2_PARTS;
+
+	images->cnt = 0;
+	CHAR16* str = stra_to_str(image_names);
+	info(L"Multiboot2 Images: %s", str);
+	FreePool(str);
+
+	if (boot_target == ASOS) {
+		ret = android_image_load_partition_avb_ab("acrn", (void **)&hdr, &boot_state, &slot_data);
+		if (EFI_ERROR(ret)) {
+			error(L"fail to load acrn partition");
+			return ret;
+		}
+		dump_mb2_partition(hdr);
+		images->headers[images->cnt] = hdr;
+		images->names[images->cnt] = "acrn";
+		images->cnt++;
+
+		/* TODO add pre launch vms components */
+		return EFI_SUCCESS;
+	} else {
+		return EFI_INVALID_PARAMETER;
+	}
+}
 
 
 #define OEMVARS_MAGIC           "#OEMVARS\n"
@@ -1183,7 +1230,8 @@ static EFI_STATUS set_image_oemvars(VOID *bootimage)
 	return set_image_oemvars_nocheck(bootimage, NULL);
 }
 
-static EFI_STATUS load_image(VOID *bootimage, VOID *vendorbootimage, UINT8 boot_state,
+static EFI_STATUS load_image(struct mb2_images *images, VOID *bootimage,
+				VOID *vendorbootimage, UINT8 boot_state,
 				enum boot_target boot_target,
 				VBDATA *vb_data
 				)
@@ -1273,6 +1321,35 @@ static EFI_STATUS load_image(VOID *bootimage, VOID *vendorbootimage, UINT8 boot_
 	else if (andr_tpm)
 		tpm2_end();
 
+#ifdef USE_ACRN
+	if (boot_target == ASOS) {
+		ret = load_mb2_images(images);
+		if (EFI_ERROR(ret))
+			goto failed;
+
+		EFI_PHYSICAL_ADDRESS kernel_start, cmdline_start, ramdisk_start;
+		UINTN kernel_size, cmdline_size, ramdisk_size;
+		ret = load_kernel(g_parent_image, bootimage,
+				vendorbootimage, boot_target, boot_state, NULL,
+				vb_data, NULL, &kernel_start, &kernel_size,
+				&ramdisk_start, &ramdisk_size, &cmdline_start,
+				&cmdline_size);
+		if (EFI_ERROR(ret))
+			goto failed;
+
+		/* add kernel and ramdisk as multiboot2 modules */
+		acrn_mb2_add_kernel(images, kernel_start, kernel_size,
+				cmdline_start, cmdline_size,
+				ramdisk_start, ramdisk_size);
+
+		debug(L"chainloading acrn image, boot state is %s", boot_state_to_string(boot_state));
+		ret = acrn_image_start(g_parent_image, images);
+		if (EFI_ERROR(ret))
+			efi_perror(ret, L"Couldn't load acrn image");
+
+	} else
+#endif
+	{
 	debug(L"chainloading boot image, boot state is %s",
 			boot_state_to_string(boot_state));
 	ret = android_image_start_buffer(g_parent_image, bootimage, vendorbootimage,
@@ -1281,7 +1358,9 @@ static EFI_STATUS load_image(VOID *bootimage, VOID *vendorbootimage, UINT8 boot_
 					cmd_buf);
 	if (EFI_ERROR(ret))
 		efi_perror(ret, L"Couldn't load Boot image");
+	}
 
+failed:
 	ret = slot_boot_failed(boot_target);
 	if (EFI_ERROR(ret))
 		efi_perror(ret, L"Failed to write slot failure");
@@ -1373,7 +1452,7 @@ static VOID enter_fastboot_mode(UINT8 boot_state)
                                 if (EFI_ERROR(ret))
                                         efi_perror(ret, L"Fastboot mode fail to load slot data");
 				set_image_oemvars_nocheck(bootimage, NULL);
-				load_image(bootimage, NULL, BOOT_STATE_ORANGE, NORMAL_BOOT, slot_data);
+				load_image(NULL, bootimage, NULL, BOOT_STATE_ORANGE, NORMAL_BOOT, slot_data);
 			}
 			FreePool(bootimage);
 			bootimage = NULL;
@@ -1505,6 +1584,8 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *sys_table)
 #ifdef __CRASH_DUMP
 	EFI_GUID dump_partition =  { 0xCAB9B00C, 0xCC1B, 0x4C0F, {0xB9, 0x32, 0x82, 0x92, 0x0D, 0xA5, 0x22, 0x51} };
 #endif
+	struct mb2_images mb2_images;
+	memset(&mb2_images, 0, sizeof(struct mb2_images));
 
 	set_boottime_stamp(TM_EFI_MAIN);
 	/* gnu-efi initialization */
@@ -1642,6 +1723,11 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *sys_table)
 	if (boot_target == DNX || boot_target == CRASHMODE)
 		reboot_to_target(boot_target, EfiResetCold);
 
+#ifdef USE_ACRN
+	if (boot_target == NORMAL_BOOT)
+		boot_target = ASOS;
+#endif
+
 #ifdef USERDEBUG
 	debug(L"checking device state");
 
@@ -1713,6 +1799,10 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *sys_table)
 	disable_slot_if_efi_loaded_slot_failed();
 	ret = avb_load_verify_boot_image(boot_target, target_path, &bootimage, oneshot, &boot_state, &vb_data);
 	avb_load_verify_vendor_boot_image(boot_target, &vendorbootimage);
+#ifdef USE_ACRN
+	/* just verify images paritions, will load images later */
+	avb_load_verify_mb2_images(boot_target, &mb2_images);
+#endif
 
 	set_boottime_stamp(TM_VERIFY_BOOT_DONE);
 
@@ -1734,6 +1824,9 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *sys_table)
 		set_image_oemvars_nocheck(bootimage, NULL);
 		set_oemvars_update(TRUE);
 		break;
+#ifdef USE_ACRN
+	case ASOS:
+#endif
 	case NORMAL_BOOT:
 	case CHARGER:
 		set_image_oemvars(bootimage);
@@ -1742,13 +1835,16 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *sys_table)
 		break;
 	}
 
-	ret = load_image(bootimage, vendorbootimage, boot_state, boot_target,
+	ret = load_image(&mb2_images, bootimage, vendorbootimage, boot_state, boot_target,
 			vb_data
 			);
 	if (EFI_ERROR(ret))
 		efi_perror(ret, L"Failed to start boot image");
 
 	switch (boot_target) {
+#ifdef USE_ACRN
+	case ASOS:
+#endif
 	case NORMAL_BOOT:
 	case CHARGER:
 		if (slot_get_active())
