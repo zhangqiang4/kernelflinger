@@ -99,6 +99,7 @@ ifeq ($(MULTI_USER_SUPPORT),true)
 endif
 
 LOCAL_SRC_FILES := \
+	acrn.c \
 	android.c \
 	efilinux.c \
 	acpi.c \
@@ -113,6 +114,7 @@ LOCAL_SRC_FILES := \
 	storage.c \
 	pci.c \
 	mmc.c \
+	multiboot.c \
 	ufs.c \
 	sdcard.c \
 	sdio.c \
