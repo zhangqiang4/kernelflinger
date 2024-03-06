@@ -25,6 +25,7 @@
 #endif
 #include "targets.h"
 #include "android_vb2.h"
+#include "multiboot.h"
 
 #define BOOT_MAGIC "ANDROID!"
 #define BOOT_MAGIC_SIZE 8
@@ -494,6 +495,21 @@ _Static_assert(sizeof(struct bootloader_control) ==
                sizeof(((struct bootloader_message_ab *)0)->slot_suffix),
                "struct bootloader_control has wrong size");
 #endif
+
+/* load kernel, cmdline and ramdisk */
+EFI_STATUS load_kernel(
+                IN __attribute__((unused)) EFI_HANDLE parent_image,
+                IN VOID *bootimage,
+                IN VOID *vendorbootimage,
+                IN enum boot_target boot_target,
+                IN UINT8 boot_state,
+                IN EFI_GUID *swap_guid,
+                IN VBDATA *vb_data,
+                IN const CHAR8 *abl_cmd_line,
+                IN EFI_PHYSICAL_ADDRESS *kernel_start, IN UINTN *kernel_size,
+                IN EFI_PHYSICAL_ADDRESS *ramdisk_start, IN UINTN *ramdisk_size,
+                IN EFI_PHYSICAL_ADDRESS *cmdline_start, IN UINTN *cmdline_size);
+
 
 /* Functions to load an Android boot image.
  * You can do this from a file, a partition GUID, or
