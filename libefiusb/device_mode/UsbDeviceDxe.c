@@ -115,6 +115,15 @@ static EFI_STATUS find_usb_device_controller (EFI_HANDLE Controller)
       (class_reg.SubClassCode == PCI_CLASS_SERIAL_USB) &&
       ((class_reg.ProgInterface == PCI_IF_USBDEV) ||
       (class_reg.ProgInterface == 0x80))) {
+    status = uefi_call_wrapper(pci->GetLocation,
+             5,
+             pci,
+             &seg,
+             &bus,
+             &dev,
+             &fun);
+    efi_perror(EFI_INVALID_PARAMETER, L"XDCI at %x:%x:%x.%x\n", seg, bus, dev, fun);
+
     return EFI_SUCCESS;
   }
 

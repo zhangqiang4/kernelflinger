@@ -51,6 +51,7 @@ void vlog(const CHAR16 *fmt, va_list args);
 #define DEBUG_MESSAGES 1
 #endif
 #endif
+#define DEBUG_MESSAGES 1
 
 #if DEBUG_MESSAGES
 #define debug(fmt, ...) do { \

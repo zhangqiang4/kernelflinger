@@ -143,7 +143,7 @@ UsbdInit (
   ConfigParams.ControllerId = USB_ID_DWC_XDCI;
   ConfigParams.BaseAddress  = MmioBar;
   ConfigParams.Role = USB_ROLE_DEVICE;
-  ConfigParams.Speed = USB_SPEED_SUPER;
+  ConfigParams.Speed = USB_SPEED_HIGH;
 
   Status = UsbDeviceInit (&ConfigParams, XdciHndl);
 
